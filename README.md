@@ -9,36 +9,38 @@ A production-style, event-driven notification service built with FastAPI, Apache
 | Layer | Technology | Why |
 |---|---|---|
 | API Framework | FastAPI (Python) | Async-native, modern, auto Swagger docs |
-| Message Broker | Upstash Kafka (cloud) | Serverless Kafka, free tier, zero local install |
+| Message Broker | Aiven Kafka (cloud) | Fully managed Kafka, free tier, zero local install |
 | Notification Delivery | SendGrid | Free tier, reliable email delivery |
 | Containerization | Docker | Industry standard (used in deployment PRs) |
 | Orchestration | DigitalOcean Kubernetes (DOKS) | Managed K8s, $200 free credit |
 | Image Registry | DockerHub | Free, simple, CI/CD friendly |
-| Monitoring | Upstash Console | Built-in topic & message browser, no setup needed |
+| Monitoring | Aiven Console | Built-in topic & message browser, no setup needed |
 | CI/CD | GitHub Actions | Free, integrates with DockerHub + DOKS |
 | Local Dev | GitHub Codespaces | Browser-based dev environment, no local install needed |
 | Testing | Pytest | Python standard testing framework |
 | Schema Validation | Pydantic (built into FastAPI) | Type-safe event models |
 
-### Why Upstash Instead of a Self-Hosted Kafka Broker?
+### Why Aiven Instead of a Self-Hosted Kafka Broker?
 
-Upstash is serverless Kafka — you get a real Kafka endpoint in the cloud with zero installation. Your FastAPI app connects to it exactly the same way it would connect to a local or self-hosted Kafka broker. The `aiokafka` library doesn't know the difference. This removes the need for Docker during development and lets you focus on learning FastAPI and Kafka rather than infrastructure setup.
+Aiven is fully managed Apache Kafka hosted in the cloud — you get a real Kafka endpoint with zero installation. Your FastAPI app connects to it exactly the same way it would connect to a local or self-hosted Kafka broker. The `aiokafka` library doesn't know the difference. This removes the need for Docker during development and lets you focus on learning FastAPI and Kafka rather than infrastructure setup.
 
-Free tier limits: 10,000 messages/day, 100MB storage. More than sufficient for development and testing.
+> **Note:** Upstash discontinued their Kafka product in March 2025. Aiven is the recommended replacement — it offers a genuine free tier with no credit card required.
+
+Free tier limits: 1 free service per organization. The service auto-sleeps after 24 hours of inactivity — simply click **Power On** in the Aiven Console to resume. No data loss on sleep.
 
 ### How It Works
 
-Instead of running a Kafka broker on your machine or in Docker, you get a Kafka endpoint URL that your FastAPI app connects to over the internet. From your code's perspective — it's just Kafka. The `aiokafka` library doesn't know or care that it's Upstash vs a local broker.
+Instead of running a Kafka broker on your machine or in Docker, you get a Kafka endpoint URL that your FastAPI app connects to over the internet. From your code's perspective — it's just Kafka. The `aiokafka` library doesn't know or care that it's Aiven vs a local broker.
 
 ```
 Your Machine (just Python)
         │
-        │  HTTP
+        │  SSL / SASL
         ▼
 ┌─────────────────┐        ┌──────────────────────────┐
-│  FastAPI App    │───────►│   Upstash Kafka (cloud)  │
+│  FastAPI App    │───────►│   Aiven Kafka (cloud)    │
 │  (runs locally) │        │   Free tier              │
-│                 │        │   10,000 msg/day         │
+│                 │        │   Fully managed          │
 └─────────────────┘        └──────────────────────────┘
                                       │
                                       ▼
@@ -48,7 +50,9 @@ Your Machine (just Python)
                            └──────────────────────────┘
 ```
 
-For the Kafka UI (visual browser) — Upstash has a **built-in console** in their dashboard where you can see topics and messages in real time. No Kafka UI container needed during development.
+For the Kafka UI (visual browser) — Aiven has a **built-in console** in their dashboard where you can see topics, messages, and consumer group lag in real time. No Kafka UI container needed during development.
+
+> **Important — SSL:** Unlike Upstash, Aiven requires SSL with a CA Certificate. When you create your Aiven service, download the `ca.crt` file from the **Overview** tab. This file is referenced in your `.env` and used by `aiokafka` to establish a secure connection. The file must never be committed to git.
 
 ---
 
@@ -59,21 +63,24 @@ Before writing any code, make sure the following accounts are ready. No local so
 ### 1. GitHub
 Used for source control, monorepo hosting, and GitHub Actions CI/CD pipelines. Also used to launch GitHub Codespaces — your browser-based development environment.
 
-### 2. Upstash
-Used as the Kafka broker during development. Serverless, free tier, no installation needed.
+### 2. Aiven
+Used as the Kafka broker during development. Fully managed, free tier, no credit card needed.
 
-- Sign up at [upstash.com](https://upstash.com) — GitHub login works
-- Go to **Kafka** → **Create Cluster**
+- Sign up at [console.aiven.io](https://console.aiven.io) — GitHub login works
+- Click **Create Service** → Select **Apache Kafka** → Choose **Free** tier
   - Name: `kafka-notify`
-  - Region: closest to you (e.g. `eu-west-1`)
-- Once created, go to **Topics** and create two topics:
+  - Region: closest to you (e.g. `google-europe-west1`)
+- Wait ~2 minutes for status to show **Running**
+- Go to **Topics** tab and create two topics:
   - `app.events` — 3 partitions
   - `app.events.dlq` — 1 partition
-- Go to **Details** tab and save your credentials:
-  - Bootstrap Server: `xxxx.upstash.io:9092`
-  - Username
-  - Password
-- These go into your `.env` file — never commit them to git
+- Go to the **Overview** tab and save your connection details:
+  - **Service URI** (bootstrap server): `kafka-notify-xxxx.aivencloud.com:12345`
+  - **Username**
+  - **Password**
+  - **CA Certificate** — click **Download** and save as `ca.crt`
+- These go into your `.env` file — **never commit them to git**
+- The `ca.crt` file goes in the root of your project — add it to `.gitignore`
 
 ### 3. SendGrid
 Used for sending notification emails (welcome emails, order confirmations, payment failure alerts).
@@ -85,7 +92,7 @@ Used for sending notification emails (welcome emails, order confirmations, payme
   - This is the `from` address that appears on all outgoing notifications
 
 ### 4. DockerHub
-Used as the container image registry. All built Docker images are pushed here and pulled by the Kubernetes cluster. Not needed until PR 3.
+Used as the container image registry. Not needed until PR 3.
 
 - Sign up at [hub.docker.com](https://hub.docker.com)
 - Note your **DockerHub username** — it prefixes every image name
@@ -205,9 +212,9 @@ Triggered when a payment attempt fails. Sends a payment failure alert email.
 - Consumer group offset advances only after successful processing
 
 ### Integration Tests
-- `POST /events/user/signup` → message visible in Kafka topic via Kafka UI
-- `POST /events/order/placed` → message visible in Kafka topic via Kafka UI
-- `POST /events/payment/failed` → message visible in Kafka topic via Kafka UI
+- `POST /events/user/signup` → message visible in Kafka topic via Aiven Console
+- `POST /events/order/placed` → message visible in Kafka topic via Aiven Console
+- `POST /events/payment/failed` → message visible in Kafka topic via Aiven Console
 - Message in Kafka → SendGrid API called with correct recipient and template data
 - Simulated SendGrid failure → message appears in `app.events.dlq` topic
 - Consumer group lag returns to zero after processing a batch of messages
@@ -235,7 +242,7 @@ We run one consumer group (`notification-service`). In a real system, multiple t
 
 ## Development Environment
 
-This project requires **no local software installation**. Everything runs via GitHub Codespaces (browser-based VS Code) and Upstash (cloud Kafka).
+This project requires **no local software installation**. Everything runs via GitHub Codespaces (browser-based VS Code) and Aiven (cloud Kafka).
 
 ### Why GitHub Codespaces?
 - Full Linux environment with Python pre-installed, runs entirely in your browser
@@ -256,10 +263,11 @@ python3 --version    # Should be 3.10+
 pip3 --version
 ```
 
-**Step 3 — Copy environment variables**
+**Step 3 — Copy environment variables and add your Aiven credentials**
 ```bash
 cp .env.example .env
-# Fill in your Upstash and SendGrid credentials
+# Fill in your Aiven bootstrap server, username, password
+# Copy your downloaded ca.crt into the project root
 ```
 
 **Step 4 — Install dependencies and run Producer**
@@ -279,10 +287,11 @@ python -m app.main
 ```
 
 ### Monitoring Kafka
-No Kafka UI container needed. Use the **Upstash Console** at [console.upstash.com](https://console.upstash.com):
+No Kafka UI container needed. Use the **Aiven Console** at [console.aiven.io](https://console.aiven.io):
 - View topics and partition details
 - Browse messages in real time
 - Monitor consumer group lag
+- Power the service back on if it has auto-slept
 
 ---
 
@@ -325,7 +334,9 @@ kafka-notify/
 ├── tests/
 │   └── integration/
 │
+├── ca.crt                  ← Aiven SSL certificate (never commit to git)
 ├── .env.example
+├── .gitignore
 └── .github/
     └── workflows/
         └── ci-cd.yml       ← Added in PR 5
@@ -335,8 +346,8 @@ kafka-notify/
 
 | PR | Focus | Kafka | Docker | Cloud |
 |---|---|---|---|---|
-| PR 1 | Producer Service (FastAPI) | Upstash | ✗ | ✗ |
-| PR 2 | Consumer Service + SendGrid | Upstash | ✗ | ✗ |
+| PR 1 | Producer Service (FastAPI) | Aiven | ✗ | ✗ |
+| PR 2 | Consumer Service + SendGrid | Aiven | ✗ | ✗ |
 | PR 3 | Docker Compose (local) | Self-hosted | ✓ | ✗ |
 | PR 4 | Kubernetes on DigitalOcean | Self-hosted | ✓ | ✓ |
 | PR 5 | CI/CD Pipeline | Self-hosted | ✓ | ✓ |
