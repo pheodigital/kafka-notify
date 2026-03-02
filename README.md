@@ -9,34 +9,71 @@ A production-style, event-driven notification service built with FastAPI, Apache
 | Layer | Technology | Why |
 |---|---|---|
 | API Framework | FastAPI (Python) | Async-native, modern, auto Swagger docs |
-| Message Broker | Apache Kafka + Zookeeper | Core event backbone |
+| Message Broker | Upstash Kafka (cloud) | Serverless Kafka, free tier, zero local install |
 | Notification Delivery | SendGrid | Free tier, reliable email delivery |
-| Containerization | Docker | Industry standard |
+| Containerization | Docker | Industry standard (used in deployment PRs) |
 | Orchestration | DigitalOcean Kubernetes (DOKS) | Managed K8s, $200 free credit |
 | Image Registry | DockerHub | Free, simple, CI/CD friendly |
-| Monitoring | Kafka UI (Provectus) | Visual Kafka topic & consumer management |
+| Monitoring | Upstash Console | Built-in topic & message browser, no setup needed |
 | CI/CD | GitHub Actions | Free, integrates with DockerHub + DOKS |
-| Local Dev | Docker Compose | One command local environment |
+| Local Dev | GitHub Codespaces | Browser-based dev environment, no local install needed |
 | Testing | Pytest | Python standard testing framework |
 | Schema Validation | Pydantic (built into FastAPI) | Type-safe event models |
+
+### Why Upstash Instead of a Self-Hosted Kafka Broker?
+
+Upstash is serverless Kafka — you get a real Kafka endpoint in the cloud with zero installation. Your FastAPI app connects to it exactly the same way it would connect to a local or self-hosted Kafka broker. The `aiokafka` library doesn't know the difference. This removes the need for Docker during development and lets you focus on learning FastAPI and Kafka rather than infrastructure setup.
+
+Free tier limits: 10,000 messages/day, 100MB storage. More than sufficient for development and testing.
+
+### How It Works
+
+Instead of running a Kafka broker on your machine or in Docker, you get a Kafka endpoint URL that your FastAPI app connects to over the internet. From your code's perspective — it's just Kafka. The `aiokafka` library doesn't know or care that it's Upstash vs a local broker.
+
+```
+Your Machine (just Python)
+        │
+        │  HTTP
+        ▼
+┌─────────────────┐        ┌──────────────────────────┐
+│  FastAPI App    │───────►│   Upstash Kafka (cloud)  │
+│  (runs locally) │        │   Free tier              │
+│                 │        │   10,000 msg/day         │
+└─────────────────┘        └──────────────────────────┘
+                                      │
+                                      ▼
+                           ┌──────────────────────────┐
+                           │  Consumer Service        │
+                           │  (runs locally too)      │
+                           └──────────────────────────┘
+```
+
+For the Kafka UI (visual browser) — Upstash has a **built-in console** in their dashboard where you can see topics and messages in real time. No Kafka UI container needed during development.
 
 ---
 
 ## Accounts You Need — Set These Up First
 
-Before running anything locally or deploying to the cloud, make sure the following accounts and tools are ready.
+Before writing any code, make sure the following accounts are ready. No local software installation is required.
 
 ### 1. GitHub
-Used for source control, monorepo hosting, and GitHub Actions CI/CD pipelines. Assumed to be already set up.
+Used for source control, monorepo hosting, and GitHub Actions CI/CD pipelines. Also used to launch GitHub Codespaces — your browser-based development environment.
 
-### 2. DockerHub
-Used as the container image registry. All built Docker images are pushed here and pulled by the Kubernetes cluster.
+### 2. Upstash
+Used as the Kafka broker during development. Serverless, free tier, no installation needed.
 
-- Sign up at [hub.docker.com](https://hub.docker.com)
-- Note your **DockerHub username** — it prefixes every image name
-  - Example: `yourusername/producer-service:latest`
-- Create an **Access Token** under Account Settings → Security → New Access Token
-- Save the token — it is used in GitHub Actions secrets
+- Sign up at [upstash.com](https://upstash.com) — GitHub login works
+- Go to **Kafka** → **Create Cluster**
+  - Name: `kafka-notify`
+  - Region: closest to you (e.g. `eu-west-1`)
+- Once created, go to **Topics** and create two topics:
+  - `app.events` — 3 partitions
+  - `app.events.dlq` — 1 partition
+- Go to **Details** tab and save your credentials:
+  - Bootstrap Server: `xxxx.upstash.io:9092`
+  - Username
+  - Password
+- These go into your `.env` file — never commit them to git
 
 ### 3. SendGrid
 Used for sending notification emails (welcome emails, order confirmations, payment failure alerts).
@@ -47,13 +84,19 @@ Used for sending notification emails (welcome emails, order confirmations, payme
 - Navigate to **Settings → Sender Authentication** and verify your sender email address
   - This is the `from` address that appears on all outgoing notifications
 
-### 4. DigitalOcean
-Used for managed Kubernetes hosting.
+### 4. DockerHub
+Used as the container image registry. All built Docker images are pushed here and pulled by the Kubernetes cluster. Not needed until PR 3.
+
+- Sign up at [hub.docker.com](https://hub.docker.com)
+- Note your **DockerHub username** — it prefixes every image name
+  - Example: `yourusername/producer-service:latest`
+- Create an **Access Token** under Account Settings → Security → New Access Token
+
+### 5. DigitalOcean
+Used for managed Kubernetes hosting. Not needed until PR 4.
 
 - Sign up at [digitalocean.com](https://digitalocean.com) — $200 free credit for new accounts
-- Install the `doctl` CLI: [Install Guide](https://docs.digitalocean.com/reference/doctl/how-to/install/)
-- Authenticate: `doctl auth init` using your DigitalOcean API token
-- The Kubernetes cluster is created in PR 4, not during local setup
+- The Kubernetes cluster is created in PR 4, not during development
 
 ---
 
@@ -190,25 +233,56 @@ We run one consumer group (`notification-service`). In a real system, multiple t
 
 ---
 
-## Local Development
+## Development Environment
 
-```bash
-# Clone the repo
-git clone https://github.com/yourname/kafka-notify.git
-cd kafka-notify
+This project requires **no local software installation**. Everything runs via GitHub Codespaces (browser-based VS Code) and Upstash (cloud Kafka).
 
-# Copy environment variables
-cp .env.example .env
+### Why GitHub Codespaces?
+- Full Linux environment with Python pre-installed, runs entirely in your browser
+- No admin rights or local installation needed
+- Ports are automatically forwarded — `localhost:8001/docs` works in your browser even though the code runs on a GitHub server
+- Free tier: 120 core-hours/month (more than enough for this project)
 
-# Start all local services
-docker-compose up -d
+### Getting Started
 
-# Kafka UI available at
-http://localhost:8080
-
-# Producer API Swagger docs available at
-http://localhost:8001/docs
+**Step 1 — Open in Codespaces**
 ```
+GitHub Repo → Code button → Codespaces tab → Create codespace on main
+```
+
+**Step 2 — Verify Python is ready**
+```bash
+python3 --version    # Should be 3.10+
+pip3 --version
+```
+
+**Step 3 — Copy environment variables**
+```bash
+cp .env.example .env
+# Fill in your Upstash and SendGrid credentials
+```
+
+**Step 4 — Install dependencies and run Producer**
+```bash
+cd producer-service
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8001
+
+# Swagger UI auto-opens at localhost:8001/docs (Codespaces forwards the port)
+```
+
+**Step 5 — Run Consumer (separate terminal)**
+```bash
+cd consumer-service
+pip install -r requirements.txt
+python -m app.main
+```
+
+### Monitoring Kafka
+No Kafka UI container needed. Use the **Upstash Console** at [console.upstash.com](https://console.upstash.com):
+- View topics and partition details
+- Browse messages in real time
+- Monitor consumer group lag
 
 ---
 
@@ -224,7 +298,7 @@ kafka-notify/
 │   │   ├── kafka/
 │   │   └── config.py
 │   ├── tests/
-│   ├── Dockerfile
+│   ├── Dockerfile          ← Added in PR 3
 │   └── requirements.txt
 │
 ├── consumer-service/
@@ -236,22 +310,33 @@ kafka-notify/
 │   │   ├── notifications/
 │   │   └── config.py
 │   ├── tests/
-│   ├── Dockerfile
+│   ├── Dockerfile          ← Added in PR 3
 │   └── requirements.txt
 │
-├── k8s/
+├── k8s/                    ← Added in PR 4
 │   ├── producer/
 │   ├── consumer/
 │   ├── kafka/
 │   └── kafka-ui/
 │
-├── docker/
+├── docker/                 ← Added in PR 3
 │   └── docker-compose.yml
 │
 ├── tests/
 │   └── integration/
 │
+├── .env.example
 └── .github/
     └── workflows/
-        └── ci-cd.yml
+        └── ci-cd.yml       ← Added in PR 5
 ```
+
+## PR Roadmap
+
+| PR | Focus | Kafka | Docker | Cloud |
+|---|---|---|---|---|
+| PR 1 | Producer Service (FastAPI) | Upstash | ✗ | ✗ |
+| PR 2 | Consumer Service + SendGrid | Upstash | ✗ | ✗ |
+| PR 3 | Docker Compose (local) | Self-hosted | ✓ | ✗ |
+| PR 4 | Kubernetes on DigitalOcean | Self-hosted | ✓ | ✓ |
+| PR 5 | CI/CD Pipeline | Self-hosted | ✓ | ✓ |
