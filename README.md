@@ -351,3 +351,41 @@ kafka-notify/
 | PR 3 | Docker Compose (local) | Self-hosted | ✓ | ✗ |
 | PR 4 | Kubernetes on DigitalOcean | Self-hosted | ✓ | ✓ |
 | PR 5 | CI/CD Pipeline | Self-hosted | ✓ | ✓ |
+
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# You should see (.venv) at the start of your terminal prompt
+ - Once you see (.venv) in your prompt, run:
+
+ # Create the full project structure
+mkdir -p certs
+mkdir -p producer-service/app/routes
+mkdir -p producer-service/app/models
+mkdir -p producer-service/app/kafka
+mkdir -p producer-service/tests
+
+# Create all empty files we'll fill in
+touch producer-service/app/__init__.py
+touch producer-service/app/main.py
+touch producer-service/app/config.py
+touch producer-service/app/routes/__init__.py
+touch producer-service/app/routes/events.py
+touch producer-service/app/routes/health.py
+touch producer-service/app/models/__init__.py
+touch producer-service/app/models/base.py
+touch producer-service/app/models/user.py
+touch producer-service/app/models/order.py
+touch producer-service/app/models/payment.py
+touch producer-service/app/kafka/__init__.py
+touch producer-service/app/kafka/producer.py
+touch producer-service/tests/__init__.py
+touch producer-service/requirements.txt
+touch .gitignore
+touch .env.example
+touch .env
+
+# Then confirm with:
+find . -not -path './.venv/*' -not -path './certs/*' | sort
